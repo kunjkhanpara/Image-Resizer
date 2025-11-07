@@ -1,0 +1,86 @@
+body {
+  background: linear-gradient(to bottom right, #b3c7ff, #e1f0ff);
+  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+}
+
+.container {
+  width: 100%;
+  max-width: 500px;
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  text-align: center;
+}
+
+h1 {
+  color: #2b4bff;
+  margin-bottom: 20px;
+}
+
+.card input[type="file"] {
+  margin-bottom: 16px;
+}
+
+input[type="number"] {
+  width: 100%;
+  padding: 10px;
+  margin: 12px 0;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 16px;
+}
+
+button {
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: 0.3s ease;
+}
+
+.resize-btn {
+  background-color: #2b4bff;
+  color: white;
+}
+
+.resize-btn:hover {
+  background-color: #1f36cc;
+}
+
+.download-btn {
+  background-color: #00b56f;
+  color: white;
+}
+
+.download-btn:hover {
+  background-color: #00995f;
+}
+
+.preview {
+  width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  border-radius: 8px;
+  margin: 10px 0;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+}
+
+p {
+  color: #555;
+  margin-bottom: 10px;
+}
+
+footer {
+  margin-top: 16px;
+  font-size: 14px;
+  color: #666;
+}
