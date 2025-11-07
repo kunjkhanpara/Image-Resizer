@@ -1,86 +1,409 @@
-body {
-  background: linear-gradient(to bottom right, #b3c7ff, #e1f0ff);
-  font-family: Arial, Helvetica, sans-serif;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+/* Base Layout */
+.page {
+  background: var(--bg);
+  color: var(--text);
+  transition: background 0.4s, color 0.4s;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
-.container {
-  width: 100%;
-  max-width: 500px;
-  background: #fff;
-  border-radius: 16px;
-  padding: 24px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-  text-align: center;
+/* Theme */
+.page.light {
+  --bg: linear-gradient(120deg, #a8c0ff, #fbc2eb);
+  --card: rgba(255, 255, 255, 0.85);
+  --text: #222;
+  --accent: #2b36ff;
+}
+.page.dark {
+  --bg: radial-gradient(circle at top left, #111, #000);
+  --card: rgba(30, 30, 30, 0.7);
+  --text: #eee;
+  --accent: #9b8cff;
 }
 
-h1 {
-  color: #2b4bff;
-  margin-bottom: 20px;
+/* Header */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 2rem;
+  background: var(--card);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
-
-.card input[type="file"] {
-  margin-bottom: 16px;
+.header h1 {
+  color: var(--accent);
+  font-size: 1.8rem;
 }
-
-input[type="number"] {
-  width: 100%;
-  padding: 10px;
-  margin: 12px 0;
-  border: 1px solid #ccc;
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.theme-toggle {
+  border: none;
+  background: transparent;
+  font-size: 1.5rem;
+  color: var(--text);
+  cursor: pointer;
+  transition: transform 0.3s;
+}
+.theme-toggle:hover {
+  transform: rotate(20deg);
+}
+.about-btn {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--accent);
   border-radius: 8px;
-  font-size: 16px;
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.about-btn:hover {
+  background: var(--accent);
+  color: white;
 }
 
-button {
-  width: 100%;
-  padding: 10px;
+/* Main */
+.main {
+  flex: 1;
+  padding: 2rem 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Dropzone */
+.dropzone {
+  width: 90%;
+  max-width: 600px;
+  border: 2px dashed var(--accent);
+  border-radius: 16px;
+  padding: 3rem 1rem;
+  background: var(--card);
+  text-align: center;
+  transition: all 0.3s;
+  cursor: pointer;
+}
+.dropzone.active {
+  background: var(--accent);
+  color: #fff;
+  transform: scale(1.03);
+}
+
+/* Mode & Controls */
+.mode-toggle {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1.2rem;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.mode-toggle label {
+  display: flex;
+  gap: 0.4rem;
+  font-size: 1rem;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
+  margin-top: 1.2rem;
+}
+.controls input[type="number"],
+.controls select {
+  padding: 0.6rem 1rem;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  font-size: 1rem;
+  background: white;
+  color: black;
+}
+.controls button {
+  background: var(--accent);
+  color: white;
   border: none;
   border-radius: 8px;
-  font-size: 16px;
+  padding: 0.7rem 1.5rem;
   cursor: pointer;
-  transition: 0.3s ease;
+  transition: 0.3s;
+}
+.controls button:hover {
+  opacity: 0.9;
 }
 
-.resize-btn {
-  background-color: #2b4bff;
+/* Dimension controls */
+.dimension-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+.dim-group {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.dim-group input {
+  width: 90px;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 1rem;
+}
+.dim-group select {
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+}
+.dim-group span {
+  font-weight: bold;
+}
+
+/* Popular sizes */
+.popular-sizes {
+  text-align: center;
+  margin-top: 0.5rem;
+}
+.popular-sizes h4 {
+  margin-bottom: 0.4rem;
+  color: var(--accent);
+}
+.size-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+.size-grid span {
+  background: var(--card);
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.1);
+  font-size: 0.85rem;
+  transition: transform 0.2s ease;
+}
+.size-grid span:hover {
+  transform: scale(1.05);
+  background: var(--accent);
   color: white;
 }
 
-.resize-btn:hover {
-  background-color: #1f36cc;
-}
-
-.download-btn {
-  background-color: #00b56f;
-  color: white;
-}
-
-.download-btn:hover {
-  background-color: #00995f;
-}
-
-.preview {
+/* Grid */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
   width: 100%;
-  max-height: 300px;
+  max-width: 1300px;
+  margin-top: 2rem;
+  padding: 0 1rem;
+}
+
+/* Card */
+.card {
+  background: var(--card);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  position: relative;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  aspect-ratio: 4 / 3;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+}
+.card:hover {
+  transform: translateY(-4px) scale(1.03);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+}
+
+/* Image inside card */
+.card img {
+  width: 100%;
+  height: 100%;
   object-fit: contain;
+  background-color: rgba(255, 255, 255, 0.1);
+  display: block;
+  transition: transform 0.3s ease;
+}
+.card img:hover {
+  transform: scale(1.05);
+}
+
+/* File size text */
+.card span {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding: 0.4rem;
+  font-size: 0.85rem;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+}
+
+/* Checkbox overlay */
+.checkbox {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 22px;
+  height: 22px;
+  accent-color: var(--accent);
+  z-index: 10;
+  transform: scale(1.2);
+  cursor: pointer;
+}
+
+/* Selected card effect */
+.card.selected {
+  outline: 3px solid var(--accent);
+  box-shadow: 0 0 15px var(--accent);
+  transform: scale(1.02);
+}
+
+/* Progress bar */
+.progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 4px;
+  background: var(--accent);
+  transition: width 0.3s;
+  border-radius: 0 2px 2px 0;
+}
+
+/* Individual Download Button */
+.download-single {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  opacity: 0;
+  transform: translateY(-5px);
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+.card:hover .download-single {
+  opacity: 1;
+  transform: translateY(0);
+}
+.download-single:hover {
+  background: #1d25c8;
+}
+
+/* Download all button */
+.download-all {
+  background: #00b56f;
+  border: none;
+  color: white;
+  padding: 0.7rem 1.3rem;
   border-radius: 8px;
-  margin: 10px 0;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-top: 1rem;
+}
+.download-all:hover {
+  background: #00995d;
+  transform: scale(1.05);
 }
 
-p {
-  color: #555;
-  margin-bottom: 10px;
+/* Footer */
+.footer {
+  text-align: center;
+  padding: 1rem;
+  background: var(--card);
+  font-size: 0.9rem;
 }
 
-footer {
-  margin-top: 16px;
-  font-size: 14px;
-  color: #666;
+/* About Page */
+.about-page {
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.about-content {
+  padding: 2rem 1.5rem;
+  max-width: 900px;
+  margin: auto;
+  line-height: 1.6;
+}
+
+.about-content h2 {
+  color: var(--accent);
+  margin-top: 1.5rem;
+}
+
+.about-content ul,
+.about-content ol {
+  margin-left: 1.2rem;
+}
+
+.github-link {
+  color: var(--accent);
+  font-weight: bold;
+  text-decoration: none;
+}
+.github-link:hover {
+  text-decoration: underline;
+}
+
+/* Responsive */
+@media (max-width: 700px) {
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  }
+  .download-single {
+    font-size: 0.7rem;
+    padding: 0.25rem 0.5rem;
+  }
+  .header h1 {
+    font-size: 1.3rem;
+  }
+}
+/* Smaller checkbox */
+.checkbox.small {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  top: 8px;
+  left: 8px;
+}
+
+/* Select All button repositioned */
+.select-control {
+  width: 100%;
+  text-align: right;
+  max-width: 1300px;
+  padding-right: 1.5rem;
+  margin-top: 1rem;
+}
+.select-all-btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 0.4rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: 0.3s;
+}
+.select-all-btn:hover {
+  background: #1d25c8;
+  transform: scale(1.05);
 }

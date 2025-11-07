@@ -1,114 +1,382 @@
-import React, { useState } from "react";
-import imageCompression from "browser-image-compression";
+import React, { useState, useEffect } from "react";
+import { useDropzone } from "react-dropzone";
+import { motion } from "framer-motion";
 import "./App.css";
+import imageCompression from "browser-image-compression";
+import { set, get, del } from "idb-keyval";
+import About from "./About";
 
-function App() {
-  const [originalImage, setOriginalImage] = useState(null);
-  const [compressedImage, setCompressedImage] = useState(null);
-  const [targetSizeMB, setTargetSizeMB] = useState("");
-  const [loading, setLoading] = useState(false);
+export default function App() {
+  const [theme, setTheme] = useState("light");
+  const [files, setFiles] = useState([]);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [results, setResults] = useState([]);
+  const [running, setRunning] = useState(false);
+  const [progressMap, setProgressMap] = useState({});
+  const [showAbout, setShowAbout] = useState(false);
 
-  const handleImageUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setOriginalImage(file);
-      setCompressedImage(null);
+  // Resize options
+  const [useMB, setUseMB] = useState(false);
+  const [useDimension, setUseDimension] = useState(false);
+  const [targetSize, setTargetSize] = useState("");
+  const [sizeUnit, setSizeUnit] = useState("MB");
+  const [width, setWidth] = useState("");
+  const [height, setHeight] = useState("");
+  const [unit, setUnit] = useState("px");
+
+  // Restore from IndexedDB
+  useEffect(() => {
+    (async () => {
+      const stored = await get("savedImages");
+      if (stored && Array.isArray(stored) && stored.length > 0) {
+        setFiles(stored);
+        setSelectedFiles(stored.map((_, i) => i));
+      }
+    })();
+  }, []);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    multiple: true,
+    accept: { "image/*": [] },
+    onDrop: async (accepted) => {
+      const newFiles = [...files, ...accepted];
+      setFiles(newFiles);
+      setSelectedFiles(newFiles.map((_, i) => i));
+      await set("savedImages", newFiles);
+    },
+  });
+
+  const convertToPx = (val) => {
+    if (unit === "px") return val;
+    const dpi = 96;
+    switch (unit) {
+      case "inch":
+        return val * dpi;
+      case "cm":
+        return (val / 2.54) * dpi;
+      case "mm":
+        return (val / 25.4) * dpi;
+      default:
+        return val;
     }
   };
 
-  const handleResize = async () => {
-    if (!originalImage || !targetSizeMB) return;
-    setLoading(true);
-    try {
-      const targetSizeBytes = targetSizeMB * 1024 * 1024;
-      let quality = 1.0;
-      let compressedFile = originalImage;
+  const showAlert = (msg) => alert(msg);
 
-      while (compressedFile.size > targetSizeBytes && quality > 0.05) {
-        const options = {
-          maxSizeMB: targetSizeMB,
-          maxWidthOrHeight: 4000,
-          useWebWorker: true,
-          initialQuality: quality,
-        };
-        compressedFile = await imageCompression(originalImage, options);
-        quality -= 0.05;
+  const startCompression = async () => {
+    if (!selectedFiles.length)
+      return showAlert("Please select at least one image to resize!");
+    if (!useMB && !useDimension)
+      return showAlert("Please select at least one resize option!");
+    if (useDimension && (!width || !height))
+      return showAlert("Please enter both width and height!");
+    if (useMB && !targetSize)
+      return showAlert("Please enter target size!");
+
+    setRunning(true);
+    setResults([]);
+    const out = [];
+
+    for (let i = 0; i < files.length; i++) {
+      if (!selectedFiles.includes(i)) continue;
+      const file = files[i];
+      let processedFile = file;
+
+      // Resize by dimension
+      if (useDimension && width && height) {
+        const w = convertToPx(Number(width));
+        const h = convertToPx(Number(height));
+        const img = await createImageBitmap(file);
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, w, h);
+        processedFile = await new Promise((resolve) =>
+          canvas.toBlob(
+            (b) => resolve(new File([b], file.name, { type: file.type })),
+            file.type,
+            0.9
+          )
+        );
       }
 
-      setCompressedImage(compressedFile);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+      // Resize by MB/KB
+      if (useMB && targetSize) {
+        processedFile = await compressAccurate(processedFile, targetSize, sizeUnit, i);
+      }
+
+      out.push({ originalIndex: i, file: processedFile });
+      setProgressMap((p) => ({ ...p, [i]: 100 }));
+    }
+
+    setResults(out);
+    setRunning(false);
+  };
+
+  // ✅ More accurate & better quality compression
+const compressAccurate = async (file, targetValue, unitType, i) => {
+  // Convert to bytes
+  const targetBytes =
+    unitType === "MB" ? targetValue * 1024 * 1024 : targetValue * 1024;
+
+  let low = 0.05,
+    high = 1.0,
+    best = file,
+    bestDiff = Infinity,
+    tries = 0;
+
+  // --- Phase 1: Binary Search ---
+  while (low <= high && tries < 15) {
+    const q = (low + high) / 2;
+    const compressed = await imageCompression(file, {
+      useWebWorker: true,
+      initialQuality: q,
+      maxWidthOrHeight: 5000,
+    });
+    const diff = Math.abs(compressed.size - targetBytes);
+
+    if (diff < bestDiff) {
+      best = compressed;
+      bestDiff = diff;
+    }
+
+    if (compressed.size > targetBytes) high = q - 0.03;
+    else low = q + 0.03;
+
+    tries++;
+    setProgressMap((p) => ({ ...p, [i]: (tries / 15) * 100 }));
+  }
+
+  // --- Phase 2: Strict Enforcement for KB ---
+  if (unitType === "KB" && best.size > targetBytes) {
+    let pass = 0;
+    let temp = best;
+    while (temp.size > targetBytes && pass < 5) {
+      const ratio = targetBytes / temp.size;
+      const nextQ = Math.max(0.05, ratio * 0.8); // allow lower quality if needed
+      const reComp = await imageCompression(file, {
+        useWebWorker: true,
+        initialQuality: nextQ,
+        maxWidthOrHeight: 5000,
+      });
+      if (reComp.size < temp.size) temp = reComp;
+      pass++;
+    }
+    best = temp;
+  }
+
+  // --- Final Safety Check ---
+  if (best.size > targetBytes * 1.02) {
+    const lastTry = await imageCompression(file, {
+      useWebWorker: true,
+      initialQuality: 0.05,
+      maxWidthOrHeight: 4000,
+    });
+    if (lastTry.size <= best.size) best = lastTry;
+  }
+
+  return best;
+};
+
+
+  const toggleSelect = (index) => {
+    if (selectedFiles.includes(index)) {
+      setSelectedFiles(selectedFiles.filter((i) => i !== index));
+    } else {
+      setSelectedFiles([...selectedFiles, index]);
     }
   };
 
-  const handleDownload = () => {
-    if (compressedImage) {
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(compressedImage);
-      link.download = `resized_${compressedImage.name}`;
-      link.click();
-    }
+  const toggleSelectAll = () => {
+    if (selectedFiles.length === files.length) setSelectedFiles([]);
+    else setSelectedFiles(files.map((_, i) => i));
   };
+
+  const downloadFile = (file) => {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(file);
+    link.download = `resized_${file.name}`;
+    link.click();
+  };
+
+  const downloadAll = () => {
+    results.forEach(({ file }) => downloadFile(file));
+  };
+
+  const clearAll = async () => {
+    setFiles([]);
+    setResults([]);
+    setSelectedFiles([]);
+    await del("savedImages");
+    alert("Cleared saved images successfully!");
+  };
+
+  const formatSize = (bytes) => {
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  if (showAbout) return <About onBack={() => setShowAbout(false)} theme={theme} />;
 
   return (
-    <div className="container">
-      <h1>HD Image Resizer 🔧</h1>
+    <div className={`page ${theme}`}>
+      <header className="header">
+        <h1>🖼️ Pro Image Resizer Studio</h1>
+        <div className="header-right">
+          <button className="about-btn" onClick={() => setShowAbout(true)}>
+            ℹ️ About
+          </button>
+          <button
+            className="theme-toggle"
+            onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+          >
+            {theme === "light" ? "🌙" : "☀️"}
+          </button>
+        </div>
+      </header>
 
-      <div className="card">
-        <input type="file" accept="image/*" onChange={handleImageUpload} />
+      <main className="main">
+        <motion.div
+          className={`dropzone ${isDragActive ? "active" : ""}`}
+          {...getRootProps()}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <input {...getInputProps()} />
+          {isDragActive ? <p>Drop files here…</p> : <p>Drag & drop or click to upload images</p>}
+        </motion.div>
 
-        {originalImage && (
-          <>
-            <img
-              src={URL.createObjectURL(originalImage)}
-              alt="Original"
-              className="preview"
+        <div className="mode-toggle">
+          <label>
+            <input type="checkbox" checked={useMB} onChange={() => setUseMB(!useMB)} />
+            Resize by Size (MB / KB)
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={useDimension}
+              onChange={() => setUseDimension(!useDimension)}
             />
-            <p>
-              Original Size:{" "}
-              {(originalImage.size / (1024 * 1024)).toFixed(2)} MB
-            </p>
-          </>
+            Resize by Dimensions
+          </label>
+        </div>
+
+        {useMB && (
+          <div className="controls">
+            <input
+              type="number"
+              placeholder={`Target size (${sizeUnit})`}
+              value={targetSize}
+              onChange={(e) => setTargetSize(e.target.value)}
+            />
+            <select
+              value={sizeUnit}
+              onChange={(e) => setSizeUnit(e.target.value)}
+              style={{ marginLeft: "8px", padding: "0.4rem" }}
+            >
+              <option value="MB">MB</option>
+              <option value="KB">KB</option>
+            </select>
+          </div>
         )}
 
-        <input
-          type="number"
-          value={targetSizeMB}
-          onChange={(e) => setTargetSizeMB(e.target.value)}
-          placeholder="Enter target size (MB)"
-        />
+        {useDimension && (
+          <div className="dimension-controls">
+            <div className="dim-group">
+              <input
+                type="number"
+                placeholder="Width"
+                value={width}
+                onChange={(e) => setWidth(e.target.value)}
+              />
+              <span>×</span>
+              <input
+                type="number"
+                placeholder="Height"
+                value={height}
+                onChange={(e) => setHeight(e.target.value)}
+              />
+              <select value={unit} onChange={(e) => setUnit(e.target.value)}>
+                <option value="px">px</option>
+                <option value="mm">mm</option>
+                <option value="cm">cm</option>
+                <option value="inch">inch</option>
+              </select>
+            </div>
+          </div>
+        )}
 
-        <button
-          onClick={handleResize}
-          disabled={loading || !originalImage}
-          className="resize-btn"
-        >
-          {loading ? "Processing..." : "Resize Image"}
-        </button>
-
-        {compressedImage && (
-          <div className="result">
-            <h3>Resized Image:</h3>
-            <img
-              src={URL.createObjectURL(compressedImage)}
-              alt="Compressed"
-              className="preview"
-            />
-            <p>
-              New Size: {(compressedImage.size / (1024 * 1024)).toFixed(2)} MB
-            </p>
-            <button onClick={handleDownload} className="download-btn">
-              Download Resized Image
+        {files.length > 0 && (
+          <div className="select-control">
+            <button onClick={toggleSelectAll} className="select-all-btn">
+              {selectedFiles.length === files.length ? "Deselect All" : "Select All"}
             </button>
           </div>
         )}
-      </div>
 
-      <footer>Made with ❤️ by Kunj Khanpara</footer>
+        <button onClick={startCompression} disabled={running || !files.length}>
+          {running ? "Processing…" : "Start Resizing"}
+        </button>
+
+        <button
+          onClick={clearAll}
+          disabled={running}
+          style={{ marginTop: "0.5rem", background: "#ff5b5b", color: "#fff" }}
+        >
+          Clear All
+        </button>
+
+        {files.length > 0 && (
+          <div className="grid">
+            {files.map((f, i) => (
+              <div
+                key={i}
+                className={`card ${selectedFiles.includes(i) ? "selected" : ""}`}
+                onClick={() => toggleSelect(i)}
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedFiles.includes(i)}
+                  readOnly
+                  className="checkbox small"
+                />
+                <img src={URL.createObjectURL(f)} alt={f.name} />
+                <span>{formatSize(f.size)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {results.length > 0 && (
+          <>
+            <div className="resized-header">
+              <h2>Resized Images</h2>
+              <button className="download-all" onClick={downloadAll}>
+                Download All
+              </button>
+            </div>
+            <div className="grid">
+              {results.map(({ file }, i) => (
+                <div key={i} className="card">
+                  <img src={URL.createObjectURL(file)} alt={file.name} />
+                  <span>{formatSize(file.size)}</span>
+                  <button className="download-single" onClick={() => downloadFile(file)}>
+                    Download
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </main>
+
+      <footer className="footer">
+        Made with ❤️ by{" "}
+        <a href="https://kunjkhanpara.github.io/" target="_blank" rel="noreferrer">
+          Kunj Khanpara
+        </a>
+      </footer>
     </div>
   );
 }
-
-export default App;
