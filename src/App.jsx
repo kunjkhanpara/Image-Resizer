@@ -114,26 +114,29 @@ export default function App() {
     setRunning(false);
   };
 
-  // ✅ More accurate & better quality compression
-const compressAccurate = async (file, targetValue, unitType, i) => {
+  const compressAccurate = async (file, targetValue, unitType, i) => {
   // Convert to bytes
   const targetBytes =
     unitType === "MB" ? targetValue * 1024 * 1024 : targetValue * 1024;
 
-  let low = 0.05,
+  // set min quality dynamically based on mode
+  const minQuality = unitType === "MB" ? 0.5 : 0.05;
+  const maxTries = 15;
+  let low = minQuality,
     high = 1.0,
     best = file,
     bestDiff = Infinity,
     tries = 0;
 
-  // --- Phase 1: Binary Search ---
-  while (low <= high && tries < 15) {
+  // --- Phase 1: Binary Search Compression ---
+  while (low <= high && tries < maxTries) {
     const q = (low + high) / 2;
     const compressed = await imageCompression(file, {
       useWebWorker: true,
       initialQuality: q,
       maxWidthOrHeight: 5000,
     });
+
     const diff = Math.abs(compressed.size - targetBytes);
 
     if (diff < bestDiff) {
@@ -145,16 +148,16 @@ const compressAccurate = async (file, targetValue, unitType, i) => {
     else low = q + 0.03;
 
     tries++;
-    setProgressMap((p) => ({ ...p, [i]: (tries / 15) * 100 }));
+    setProgressMap((p) => ({ ...p, [i]: (tries / maxTries) * 100 }));
   }
 
-  // --- Phase 2: Strict Enforcement for KB ---
-  if (unitType === "KB" && best.size > targetBytes) {
+  // --- Phase 2: Fine-Tuning for KB Mode ---
+  if (unitType === "KB" && best.size > targetBytes * 1.05) {
     let pass = 0;
     let temp = best;
     while (temp.size > targetBytes && pass < 5) {
       const ratio = targetBytes / temp.size;
-      const nextQ = Math.max(0.05, ratio * 0.8); // allow lower quality if needed
+      const nextQ = Math.max(minQuality, ratio * 0.8);
       const reComp = await imageCompression(file, {
         useWebWorker: true,
         initialQuality: nextQ,
@@ -166,18 +169,25 @@ const compressAccurate = async (file, targetValue, unitType, i) => {
     best = temp;
   }
 
-  // --- Final Safety Check ---
-  if (best.size > targetBytes * 1.02) {
-    const lastTry = await imageCompression(file, {
-      useWebWorker: true,
-      initialQuality: 0.05,
-      maxWidthOrHeight: 4000,
-    });
-    if (lastTry.size <= best.size) best = lastTry;
+  // --- MB Mode Adjustment: Keep near-perfect HD ---
+  if (unitType === "MB") {
+    // if it's below 85% of target, slightly boost quality
+    if (best.size < targetBytes * 0.85) {
+      const qualityBoost = Math.min(1, (best.size / targetBytes) + 0.2);
+      const boosted = await imageCompression(file, {
+        useWebWorker: true,
+        initialQuality: qualityBoost,
+        maxWidthOrHeight: 5000,
+      });
+      if (boosted.size > best.size && boosted.size <= targetBytes * 1.05) {
+        best = boosted;
+      }
+    }
   }
 
   return best;
 };
+
 
 
   const toggleSelect = (index) => {
