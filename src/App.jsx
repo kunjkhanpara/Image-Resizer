@@ -8,7 +8,7 @@ import About from "./About";
 
 export default function App() {
   const [theme, setTheme] = useState("light");
-  const [files, setFiles] = useState([]);
+  const [files, setFiles] = useState([]); // original uploaded files
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [results, setResults] = useState([]);
   const [running, setRunning] = useState(false);
@@ -24,7 +24,7 @@ export default function App() {
   const [height, setHeight] = useState("");
   const [unit, setUnit] = useState("px");
 
-  // Restore from IndexedDB
+  // Restore uploaded files
   useEffect(() => {
     (async () => {
       const stored = await get("savedImages");
@@ -77,9 +77,13 @@ export default function App() {
     setResults([]);
     const out = [];
 
-    for (let i = 0; i < files.length; i++) {
+    // always use original file (not previous compressed result)
+    const originalFiles = await get("savedImages");
+    const baseFiles = originalFiles || files;
+
+    for (let i = 0; i < baseFiles.length; i++) {
       if (!selectedFiles.includes(i)) continue;
-      const file = files[i];
+      const file = baseFiles[i];
       let processedFile = file;
 
       // Resize by dimension
@@ -103,7 +107,7 @@ export default function App() {
 
       // Resize by MB/KB
       if (useMB && targetSize) {
-        processedFile = await compressAccurate(processedFile, targetSize, sizeUnit, i);
+        processedFile = await compressAccurate(file, targetSize, sizeUnit, i);
       }
 
       out.push({ originalIndex: i, file: processedFile });
@@ -114,81 +118,71 @@ export default function App() {
     setRunning(false);
   };
 
+  // ✅ New precise compression logic
   const compressAccurate = async (file, targetValue, unitType, i) => {
-  // Convert to bytes
-  const targetBytes =
-    unitType === "MB" ? targetValue * 1024 * 1024 : targetValue * 1024;
+    const targetBytes =
+      unitType === "MB" ? targetValue * 1024 * 1024 : targetValue * 1024;
 
-  // set min quality dynamically based on mode
-  const minQuality = unitType === "MB" ? 0.5 : 0.05;
-  const maxTries = 15;
-  let low = minQuality,
-    high = 1.0,
-    best = file,
-    bestDiff = Infinity,
-    tries = 0;
+    let low = 0.05;
+    let high = 1.0;
+    let best = file;
+    let tries = 0;
 
-  // --- Phase 1: Binary Search Compression ---
-  while (low <= high && tries < maxTries) {
-    const q = (low + high) / 2;
-    const compressed = await imageCompression(file, {
-      useWebWorker: true,
-      initialQuality: q,
-      maxWidthOrHeight: 5000,
-    });
+    const maxTries = 14;
+    let bestDiff = Infinity;
 
-    const diff = Math.abs(compressed.size - targetBytes);
+    // Binary search to get close
+    while (low <= high && tries < maxTries) {
+      const q = (low + high) / 2;
+      const compressed = await imageCompression(file, {
+        useWebWorker: true,
+        initialQuality: q,
+        maxWidthOrHeight: unitType === "MB" ? 6000 : 3000,
+      });
 
-    if (diff < bestDiff) {
-      best = compressed;
-      bestDiff = diff;
+      const diff = Math.abs(compressed.size - targetBytes);
+      if (diff < bestDiff && compressed.size <= targetBytes) {
+        best = compressed;
+        bestDiff = diff;
+      }
+
+      if (compressed.size > targetBytes) high = q - 0.02;
+      else low = q + 0.02;
+
+      tries++;
+      setProgressMap((p) => ({ ...p, [i]: (tries / maxTries) * 100 }));
     }
 
-    if (compressed.size > targetBytes) high = q - 0.03;
-    else low = q + 0.03;
+    // Safety pass to strictly cap size
+    let result = best;
+    let safetyPass = 0;
 
-    tries++;
-    setProgressMap((p) => ({ ...p, [i]: (tries / maxTries) * 100 }));
-  }
-
-  // --- Phase 2: Fine-Tuning for KB Mode ---
-  if (unitType === "KB" && best.size > targetBytes * 1.05) {
-    let pass = 0;
-    let temp = best;
-    while (temp.size > targetBytes && pass < 5) {
-      const ratio = targetBytes / temp.size;
-      const nextQ = Math.max(minQuality, ratio * 0.8);
-      const reComp = await imageCompression(file, {
+    while (result.size > targetBytes && safetyPass < 6) {
+      const nextQ = Math.max(0.05, (targetBytes / result.size) * 0.8);
+      const recompressed = await imageCompression(file, {
         useWebWorker: true,
         initialQuality: nextQ,
-        maxWidthOrHeight: 5000,
+        maxWidthOrHeight: unitType === "MB" ? 6000 : 3000,
       });
-      if (reComp.size < temp.size) temp = reComp;
-      pass++;
+      if (recompressed.size < result.size) result = recompressed;
+      else break;
+      safetyPass++;
     }
-    best = temp;
-  }
 
-  // --- MB Mode Adjustment: Keep near-perfect HD ---
-  if (unitType === "MB") {
-    // if it's below 85% of target, slightly boost quality
-    if (best.size < targetBytes * 0.85) {
-      const qualityBoost = Math.min(1, (best.size / targetBytes) + 0.2);
+    // If result is much smaller (<85%), boost quality slightly
+    if (result.size < targetBytes * 0.85) {
+      const boostQ = Math.min(1, (result.size / targetBytes) + 0.1);
       const boosted = await imageCompression(file, {
         useWebWorker: true,
-        initialQuality: qualityBoost,
-        maxWidthOrHeight: 5000,
+        initialQuality: boostQ,
+        maxWidthOrHeight: unitType === "MB" ? 6000 : 3000,
       });
-      if (boosted.size > best.size && boosted.size <= targetBytes * 1.05) {
-        best = boosted;
-      }
+      if (boosted.size > result.size && boosted.size <= targetBytes)
+        result = boosted;
     }
-  }
 
-  return best;
-};
-
-
+    return result;
+  };
 
   const toggleSelect = (index) => {
     if (selectedFiles.includes(index)) {
@@ -227,7 +221,8 @@ export default function App() {
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
-  if (showAbout) return <About onBack={() => setShowAbout(false)} theme={theme} />;
+  if (showAbout)
+    return <About onBack={() => setShowAbout(false)} theme={theme} />;
 
   return (
     <div className={`page ${theme}`}>
@@ -254,12 +249,20 @@ export default function App() {
           animate={{ opacity: 1, y: 0 }}
         >
           <input {...getInputProps()} />
-          {isDragActive ? <p>Drop files here…</p> : <p>Drag & drop or click to upload images</p>}
+          {isDragActive ? (
+            <p>Drop files here…</p>
+          ) : (
+            <p>Drag & drop or click to upload images</p>
+          )}
         </motion.div>
 
         <div className="mode-toggle">
           <label>
-            <input type="checkbox" checked={useMB} onChange={() => setUseMB(!useMB)} />
+            <input
+              type="checkbox"
+              checked={useMB}
+              onChange={() => setUseMB(!useMB)}
+            />
             Resize by Size (MB / KB)
           </label>
           <label>
@@ -320,7 +323,9 @@ export default function App() {
         {files.length > 0 && (
           <div className="select-control">
             <button onClick={toggleSelectAll} className="select-all-btn">
-              {selectedFiles.length === files.length ? "Deselect All" : "Select All"}
+              {selectedFiles.length === files.length
+                ? "Deselect All"
+                : "Select All"}
             </button>
           </div>
         )}
@@ -342,7 +347,9 @@ export default function App() {
             {files.map((f, i) => (
               <div
                 key={i}
-                className={`card ${selectedFiles.includes(i) ? "selected" : ""}`}
+                className={`card ${
+                  selectedFiles.includes(i) ? "selected" : ""
+                }`}
                 onClick={() => toggleSelect(i)}
               >
                 <input
@@ -371,7 +378,10 @@ export default function App() {
                 <div key={i} className="card">
                   <img src={URL.createObjectURL(file)} alt={file.name} />
                   <span>{formatSize(file.size)}</span>
-                  <button className="download-single" onClick={() => downloadFile(file)}>
+                  <button
+                    className="download-single"
+                    onClick={() => downloadFile(file)}
+                  >
                     Download
                   </button>
                 </div>
@@ -383,7 +393,11 @@ export default function App() {
 
       <footer className="footer">
         Made with ❤️ by{" "}
-        <a href="https://kunjkhanpara.github.io/" target="_blank" rel="noreferrer">
+        <a
+          href="https://kunjkhanpara.github.io/"
+          target="_blank"
+          rel="noreferrer"
+        >
           Kunj Khanpara
         </a>
       </footer>
