@@ -8,8 +8,9 @@ import About from "./About";
 
 export default function App() {
   const [theme, setTheme] = useState("light");
-  const [files, setFiles] = useState([]); // Original uploaded files
-  const [originalFiles, setOriginalFiles] = useState([]); // Always keep originals
+  const [files, setFiles] = useState([]);
+  const [originalFiles, setOriginalFiles] = useState([]);
+  const [fileDimensions, setFileDimensions] = useState({}); // ✅ stores width & height of all files
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [results, setResults] = useState([]);
   const [running, setRunning] = useState(false);
@@ -33,9 +34,37 @@ export default function App() {
         setFiles(stored);
         setOriginalFiles(stored);
         setSelectedFiles(stored.map((_, i) => i));
+        await extractAllDimensions(stored); // ✅ load dimensions for stored files
       }
     })();
   }, []);
+
+  // ✅ Improved function to get dimensions for all images (old + new)
+  const extractAllDimensions = async (fileArray, existingDims = {}) => {
+    const promises = fileArray.map(
+      (file, index) =>
+        new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            resolve({
+              index,
+              width: img.width,
+              height: img.height,
+            });
+          };
+          img.src = URL.createObjectURL(file);
+        })
+    );
+
+    const loaded = await Promise.all(promises);
+    const newDims = { ...existingDims };
+
+    loaded.forEach(({ index, width, height }) => {
+      newDims[index] = { width, height };
+    });
+
+    setFileDimensions(newDims);
+  };
 
   // Dropzone setup
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -47,6 +76,7 @@ export default function App() {
       setOriginalFiles(newFiles);
       setSelectedFiles(newFiles.map((_, i) => i));
       await set("savedImages", newFiles);
+      await extractAllDimensions(newFiles); // ✅ ensure dimensions for all files
     },
   });
 
@@ -67,7 +97,7 @@ export default function App() {
 
   const showAlert = (msg) => alert(msg);
 
-  // ✅ Always use ORIGINAL file for each compression
+  // ✅ Always use ORIGINAL file for compression
   const startCompression = async () => {
     if (!selectedFiles.length)
       return showAlert("Please select at least one image to resize!");
@@ -86,10 +116,10 @@ export default function App() {
 
     for (let i = 0; i < originalFiles.length; i++) {
       if (!selectedFiles.includes(i)) continue;
-      const file = originalFiles[i]; // Always from original
+      const file = originalFiles[i];
       let processedFile = file;
 
-      // Resize by dimensions first
+      // Resize by dimensions
       if (useDimension && width && height) {
         const w = convertToPx(Number(width));
         const h = convertToPx(Number(height));
@@ -121,7 +151,7 @@ export default function App() {
     setRunning(false);
   };
 
-  // ✅ Improved compression logic — always from original
+  // ✅ Accurate MB/KB compression logic
   const compressAccurate = async (file, targetValue, unitType, i) => {
     const targetBytes =
       unitType === "MB" ? targetValue * 1024 * 1024 : targetValue * 1024;
@@ -153,7 +183,6 @@ export default function App() {
       setProgressMap((p) => ({ ...p, [i]: ((tries + 1) / maxTries) * 100 }));
     }
 
-    // Ensure below target
     let result = best;
     let safetyPass = 0;
     while (result.size > targetBytes && safetyPass < 5) {
@@ -168,7 +197,6 @@ export default function App() {
       safetyPass++;
     }
 
-    // Slight quality boost if too small
     if (result.size < targetBytes * 0.85) {
       const boostQ = Math.min(1, (result.size / targetBytes) + 0.1);
       const boosted = await imageCompression(file, {
@@ -210,6 +238,7 @@ export default function App() {
   const clearAll = async () => {
     setFiles([]);
     setOriginalFiles([]);
+    setFileDimensions({});
     setResults([]);
     setSelectedFiles([]);
     await del("savedImages");
@@ -342,7 +371,7 @@ export default function App() {
           Clear All
         </button>
 
-        {/* Always show previews */}
+        {/* Grid of Uploaded Images */}
         {files.length > 0 && (
           <div className="grid">
             {files.map((f, i) => (
@@ -366,11 +395,17 @@ export default function App() {
                     ? ` • ${Math.round(progressMap[i])}%`
                     : ""}
                 </span>
+                {useDimension && fileDimensions[i] && (
+                  <div className="dimensions-text">
+                    {fileDimensions[i].width} × {fileDimensions[i].height} px
+                  </div>
+                )}
               </div>
             ))}
           </div>
         )}
 
+        {/* Resized Images Section */}
         {results.length > 0 && (
           <>
             <div className="resized-header">
@@ -400,7 +435,7 @@ export default function App() {
       <footer className="footer">
         Made with ❤️ by{" "}
         <a
-          href="https://github.com/kunjkhanpara/Image-Resizer"
+          href="https://kunjkhanpara.github.io/Kunj_Khanpara_Portfolio/"
           target="_blank"
           rel="noreferrer"
         >

@@ -407,3 +407,14 @@
   background: #1d25c8;
   transform: scale(1.05);
 }
+/* 🔹 Image dimensions below photo */
+.dimensions-text {
+  position: absolute;
+  bottom: 22px;
+  width: 100%;
+  text-align: center;
+  font-size: 0.8rem;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 2px 0;
+}
