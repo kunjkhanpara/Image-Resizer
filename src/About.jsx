@@ -17,7 +17,7 @@ export default function About({ onBack, theme }) {
         <section>
           <h2>🖼️ What is Image Resizer Studio?</h2>
           <p>
-            Image Resizer Studio is a <strong>free, browser-based image resizing tool</strong> 
+            Image Resizer Studio is a <strong>free, browser-based image resizing tool </strong> 
             that helps you easily reduce image size (in MB) or adjust dimensions 
             (width × height) with top HD quality — directly in your browser, no upload needed.
           </p>
@@ -55,7 +55,7 @@ export default function About({ onBack, theme }) {
           <p>
             If you like this project, please give it a{" "}
             <a
-              href="https://github.com/kunjkhanpara/Image-Resizer"
+              href="https://kunjkhanpara.github.io/Kunj_Khanpara_Portfolio/"
               target="_blank"
               rel="noreferrer"
             >

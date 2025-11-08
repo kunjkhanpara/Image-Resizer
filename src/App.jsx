@@ -394,7 +394,7 @@ export default function App() {
       <footer className="footer">
         Made with ❤️ by{" "}
         <a
-          href="https://github.com/kunjkhanpara?tab=repositories"
+          href="https://kunjkhanpara.github.io/Kunj_Khanpara_Portfolio/"
           target="_blank"
           rel="noreferrer"
         >
