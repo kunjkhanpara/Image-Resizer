@@ -400,7 +400,7 @@ export default function App() {
       <footer className="footer">
         Made with ❤️ by{" "}
         <a
-          href="https://kunjkhanpara.github.io/Kunj_Khanpara_Portfolio/"
+          href="https://github.com/kunjkhanpara/Image-Resizer"
           target="_blank"
           rel="noreferrer"
         >
