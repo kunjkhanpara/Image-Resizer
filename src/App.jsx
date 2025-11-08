@@ -9,6 +9,7 @@ import About from "./About";
 export default function App() {
   const [theme, setTheme] = useState("light");
   const [files, setFiles] = useState([]); // Original uploaded files
+  const [originalFiles, setOriginalFiles] = useState([]); // Always keep originals
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [results, setResults] = useState([]);
   const [running, setRunning] = useState(false);
@@ -24,23 +25,26 @@ export default function App() {
   const [height, setHeight] = useState("");
   const [unit, setUnit] = useState("px");
 
-  // Restore uploaded files from IndexedDB
+  // Restore uploaded files
   useEffect(() => {
     (async () => {
       const stored = await get("savedImages");
       if (stored && Array.isArray(stored) && stored.length > 0) {
         setFiles(stored);
+        setOriginalFiles(stored);
         setSelectedFiles(stored.map((_, i) => i));
       }
     })();
   }, []);
 
+  // Dropzone setup
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     multiple: true,
     accept: { "image/*": [] },
     onDrop: async (accepted) => {
       const newFiles = [...files, ...accepted];
       setFiles(newFiles);
+      setOriginalFiles(newFiles);
       setSelectedFiles(newFiles.map((_, i) => i));
       await set("savedImages", newFiles);
     },
@@ -63,7 +67,7 @@ export default function App() {
 
   const showAlert = (msg) => alert(msg);
 
-  // ✅ Keeps images visible during processing
+  // ✅ Always use ORIGINAL file for each compression
   const startCompression = async () => {
     if (!selectedFiles.length)
       return showAlert("Please select at least one image to resize!");
@@ -76,13 +80,13 @@ export default function App() {
 
     setRunning(true);
     setProgressMap({});
+    setResults([]);
 
     const out = [];
-    const baseFiles = files; // Always use original uploaded files
 
-    for (let i = 0; i < baseFiles.length; i++) {
+    for (let i = 0; i < originalFiles.length; i++) {
       if (!selectedFiles.includes(i)) continue;
-      const file = baseFiles[i];
+      const file = originalFiles[i]; // Always from original
       let processedFile = file;
 
       // Resize by dimensions first
@@ -104,7 +108,7 @@ export default function App() {
         );
       }
 
-      // Then resize by MB/KB if selected
+      // Resize by MB/KB
       if (useMB && targetSize) {
         processedFile = await compressAccurate(file, targetSize, sizeUnit, i);
       }
@@ -117,7 +121,7 @@ export default function App() {
     setRunning(false);
   };
 
-  // ✅ Accurate MB/KB compression logic
+  // ✅ Improved compression logic — always from original
   const compressAccurate = async (file, targetValue, unitType, i) => {
     const targetBytes =
       unitType === "MB" ? targetValue * 1024 * 1024 : targetValue * 1024;
@@ -125,20 +129,20 @@ export default function App() {
     let low = 0.05;
     let high = 1.0;
     let best = file;
-    let tries = 0;
-    const maxTries = 14;
     let bestDiff = Infinity;
+    const maxTries = 14;
 
-    while (low <= high && tries < maxTries) {
+    for (let tries = 0; tries < maxTries; tries++) {
       const q = (low + high) / 2;
       const compressed = await imageCompression(file, {
         useWebWorker: true,
         initialQuality: q,
-        maxWidthOrHeight: unitType === "MB" ? 6000 : 3000,
+        maxWidthOrHeight: 6000,
       });
 
       const diff = Math.abs(compressed.size - targetBytes);
-      if (diff < bestDiff && compressed.size <= targetBytes) {
+
+      if (compressed.size <= targetBytes && diff < bestDiff) {
         best = compressed;
         bestDiff = diff;
       }
@@ -146,31 +150,31 @@ export default function App() {
       if (compressed.size > targetBytes) high = q - 0.02;
       else low = q + 0.02;
 
-      tries++;
-      setProgressMap((p) => ({ ...p, [i]: (tries / maxTries) * 100 }));
+      setProgressMap((p) => ({ ...p, [i]: ((tries + 1) / maxTries) * 100 }));
     }
 
+    // Ensure below target
     let result = best;
     let safetyPass = 0;
-    while (result.size > targetBytes && safetyPass < 6) {
-      const nextQ = Math.max(0.05, (targetBytes / result.size) * 0.85);
-      const recompressed = await imageCompression(file, {
+    while (result.size > targetBytes && safetyPass < 5) {
+      const nextQ = Math.max(0.05, (targetBytes / result.size) * 0.8);
+      const reCompressed = await imageCompression(file, {
         useWebWorker: true,
         initialQuality: nextQ,
-        maxWidthOrHeight: unitType === "MB" ? 6000 : 3000,
+        maxWidthOrHeight: 6000,
       });
-      if (recompressed.size < result.size) result = recompressed;
+      if (reCompressed.size < result.size) result = reCompressed;
       else break;
       safetyPass++;
     }
 
-    // Quality boost if output is too small
+    // Slight quality boost if too small
     if (result.size < targetBytes * 0.85) {
       const boostQ = Math.min(1, (result.size / targetBytes) + 0.1);
       const boosted = await imageCompression(file, {
         useWebWorker: true,
         initialQuality: boostQ,
-        maxWidthOrHeight: unitType === "MB" ? 6000 : 3000,
+        maxWidthOrHeight: 6000,
       });
       if (boosted.size > result.size && boosted.size <= targetBytes)
         result = boosted;
@@ -205,6 +209,7 @@ export default function App() {
 
   const clearAll = async () => {
     setFiles([]);
+    setOriginalFiles([]);
     setResults([]);
     setSelectedFiles([]);
     await del("savedImages");
@@ -337,6 +342,7 @@ export default function App() {
           Clear All
         </button>
 
+        {/* Always show previews */}
         {files.length > 0 && (
           <div className="grid">
             {files.map((f, i) => (
