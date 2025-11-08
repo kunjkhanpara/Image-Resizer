@@ -10,7 +10,7 @@ export default function App() {
   const [theme, setTheme] = useState("light");
   const [files, setFiles] = useState([]);
   const [originalFiles, setOriginalFiles] = useState([]);
-  const [fileDimensions, setFileDimensions] = useState({}); // ✅ stores width & height of all files
+  const [fileDimensions, setFileDimensions] = useState({});
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [results, setResults] = useState([]);
   const [running, setRunning] = useState(false);
@@ -26,7 +26,21 @@ export default function App() {
   const [height, setHeight] = useState("");
   const [unit, setUnit] = useState("px");
 
-  // Restore uploaded files
+  // ✅ 1️⃣ Warm up Web Worker (fix for mobile freeze)
+  useEffect(() => {
+    const warmup = async () => {
+      try {
+        const blob = new Blob(["fake"], { type: "image/jpeg" });
+        await imageCompression(blob, { maxSizeMB: 0.001, useWebWorker: true });
+        console.log("Worker ready ✅");
+      } catch (err) {
+        console.log("Worker warmup skipped:", err);
+      }
+    };
+    warmup();
+  }, []);
+
+  // Restore from IndexedDB
   useEffect(() => {
     (async () => {
       const stored = await get("savedImages");
@@ -34,12 +48,12 @@ export default function App() {
         setFiles(stored);
         setOriginalFiles(stored);
         setSelectedFiles(stored.map((_, i) => i));
-        await extractAllDimensions(stored); // ✅ load dimensions for stored files
+        await extractAllDimensions(stored);
       }
     })();
   }, []);
 
-  // ✅ Improved function to get dimensions for all images (old + new)
+  // ✅ Extract dimensions for all images
   const extractAllDimensions = async (fileArray, existingDims = {}) => {
     const promises = fileArray.map(
       (file, index) =>
@@ -58,11 +72,9 @@ export default function App() {
 
     const loaded = await Promise.all(promises);
     const newDims = { ...existingDims };
-
     loaded.forEach(({ index, width, height }) => {
       newDims[index] = { width, height };
     });
-
     setFileDimensions(newDims);
   };
 
@@ -76,7 +88,7 @@ export default function App() {
       setOriginalFiles(newFiles);
       setSelectedFiles(newFiles.map((_, i) => i));
       await set("savedImages", newFiles);
-      await extractAllDimensions(newFiles); // ✅ ensure dimensions for all files
+      await extractAllDimensions(newFiles);
     },
   });
 
@@ -97,7 +109,7 @@ export default function App() {
 
   const showAlert = (msg) => alert(msg);
 
-  // ✅ Always use ORIGINAL file for compression
+  // ✅ Compression start
   const startCompression = async () => {
     if (!selectedFiles.length)
       return showAlert("Please select at least one image to resize!");
@@ -119,7 +131,7 @@ export default function App() {
       const file = originalFiles[i];
       let processedFile = file;
 
-      // Resize by dimensions
+      // Resize by dimension
       if (useDimension && width && height) {
         const w = convertToPx(Number(width));
         const h = convertToPx(Number(height));
@@ -151,27 +163,39 @@ export default function App() {
     setRunning(false);
   };
 
-  // ✅ Accurate MB/KB compression logic
+  // ✅ 2️⃣ Mobile-safe compression with auto-fallback (no worker retry)
   const compressAccurate = async (file, targetValue, unitType, i) => {
     const targetBytes =
       unitType === "MB" ? targetValue * 1024 * 1024 : targetValue * 1024;
-
-    let low = 0.05;
-    let high = 1.0;
-    let best = file;
-    let bestDiff = Infinity;
+    let low = 0.05,
+      high = 1.0,
+      best = file,
+      bestDiff = Infinity;
     const maxTries = 14;
 
+    let useWorker = true;
     for (let tries = 0; tries < maxTries; tries++) {
       const q = (low + high) / 2;
-      const compressed = await imageCompression(file, {
-        useWebWorker: true,
-        initialQuality: q,
-        maxWidthOrHeight: 6000,
-      });
+      let compressed;
+
+      try {
+        compressed = await Promise.race([
+          imageCompression(file, {
+            useWebWorker: useWorker,
+            initialQuality: q,
+            maxWidthOrHeight: 6000,
+          }),
+          new Promise((_, reject) =>
+            setTimeout(() => reject("timeout"), 2500)
+          ),
+        ]);
+      } catch {
+        console.warn("⚠️ Worker timeout. Retrying without worker...");
+        useWorker = false;
+        continue;
+      }
 
       const diff = Math.abs(compressed.size - targetBytes);
-
       if (compressed.size <= targetBytes && diff < bestDiff) {
         best = compressed;
         bestDiff = diff;
@@ -188,7 +212,7 @@ export default function App() {
     while (result.size > targetBytes && safetyPass < 5) {
       const nextQ = Math.max(0.05, (targetBytes / result.size) * 0.8);
       const reCompressed = await imageCompression(file, {
-        useWebWorker: true,
+        useWebWorker: useWorker,
         initialQuality: nextQ,
         maxWidthOrHeight: 6000,
       });
@@ -200,7 +224,7 @@ export default function App() {
     if (result.size < targetBytes * 0.85) {
       const boostQ = Math.min(1, (result.size / targetBytes) + 0.1);
       const boosted = await imageCompression(file, {
-        useWebWorker: true,
+        useWebWorker: useWorker,
         initialQuality: boostQ,
         maxWidthOrHeight: 6000,
       });
@@ -211,13 +235,10 @@ export default function App() {
     return result;
   };
 
-  const toggleSelect = (index) => {
-    if (selectedFiles.includes(index)) {
-      setSelectedFiles(selectedFiles.filter((i) => i !== index));
-    } else {
-      setSelectedFiles([...selectedFiles, index]);
-    }
-  };
+  const toggleSelect = (index) =>
+    setSelectedFiles((prev) =>
+      prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index]
+    );
 
   const toggleSelectAll = () => {
     if (selectedFiles.length === files.length) setSelectedFiles([]);
@@ -231,9 +252,7 @@ export default function App() {
     link.click();
   };
 
-  const downloadAll = () => {
-    results.forEach(({ file }) => downloadFile(file));
-  };
+  const downloadAll = () => results.forEach(({ file }) => downloadFile(file));
 
   const clearAll = async () => {
     setFiles([]);
@@ -245,10 +264,10 @@ export default function App() {
     alert("Cleared saved images successfully!");
   };
 
-  const formatSize = (bytes) => {
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-  };
+  const formatSize = (bytes) =>
+    bytes < 1024 * 1024
+      ? `${(bytes / 1024).toFixed(1)} KB`
+      : `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 
   if (showAbout)
     return <About onBack={() => setShowAbout(false)} theme={theme} />;
@@ -371,7 +390,7 @@ export default function App() {
           Clear All
         </button>
 
-        {/* Grid of Uploaded Images */}
+        {/* Uploaded Images Grid */}
         {files.length > 0 && (
           <div className="grid">
             {files.map((f, i) => (
@@ -405,7 +424,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Resized Images Section */}
+        {/* Resized Results */}
         {results.length > 0 && (
           <>
             <div className="resized-header">
