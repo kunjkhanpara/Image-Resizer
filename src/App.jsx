@@ -8,7 +8,7 @@ import About from "./About";
 
 export default function App() {
   const [theme, setTheme] = useState("light");
-  const [files, setFiles] = useState([]); // original uploaded files
+  const [files, setFiles] = useState([]); // Original uploaded files
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [results, setResults] = useState([]);
   const [running, setRunning] = useState(false);
@@ -24,7 +24,7 @@ export default function App() {
   const [height, setHeight] = useState("");
   const [unit, setUnit] = useState("px");
 
-  // Restore uploaded files
+  // Restore uploaded files from IndexedDB
   useEffect(() => {
     (async () => {
       const stored = await get("savedImages");
@@ -63,6 +63,7 @@ export default function App() {
 
   const showAlert = (msg) => alert(msg);
 
+  // ✅ Keeps images visible during processing
   const startCompression = async () => {
     if (!selectedFiles.length)
       return showAlert("Please select at least one image to resize!");
@@ -74,19 +75,17 @@ export default function App() {
       return showAlert("Please enter target size!");
 
     setRunning(true);
-    setResults([]);
-    const out = [];
+    setProgressMap({});
 
-    // always use original file (not previous compressed result)
-    const originalFiles = await get("savedImages");
-    const baseFiles = originalFiles || files;
+    const out = [];
+    const baseFiles = files; // Always use original uploaded files
 
     for (let i = 0; i < baseFiles.length; i++) {
       if (!selectedFiles.includes(i)) continue;
       const file = baseFiles[i];
       let processedFile = file;
 
-      // Resize by dimension
+      // Resize by dimensions first
       if (useDimension && width && height) {
         const w = convertToPx(Number(width));
         const h = convertToPx(Number(height));
@@ -105,7 +104,7 @@ export default function App() {
         );
       }
 
-      // Resize by MB/KB
+      // Then resize by MB/KB if selected
       if (useMB && targetSize) {
         processedFile = await compressAccurate(file, targetSize, sizeUnit, i);
       }
@@ -118,7 +117,7 @@ export default function App() {
     setRunning(false);
   };
 
-  // ✅ New precise compression logic
+  // ✅ Accurate MB/KB compression logic
   const compressAccurate = async (file, targetValue, unitType, i) => {
     const targetBytes =
       unitType === "MB" ? targetValue * 1024 * 1024 : targetValue * 1024;
@@ -127,11 +126,9 @@ export default function App() {
     let high = 1.0;
     let best = file;
     let tries = 0;
-
     const maxTries = 14;
     let bestDiff = Infinity;
 
-    // Binary search to get close
     while (low <= high && tries < maxTries) {
       const q = (low + high) / 2;
       const compressed = await imageCompression(file, {
@@ -153,12 +150,10 @@ export default function App() {
       setProgressMap((p) => ({ ...p, [i]: (tries / maxTries) * 100 }));
     }
 
-    // Safety pass to strictly cap size
     let result = best;
     let safetyPass = 0;
-
     while (result.size > targetBytes && safetyPass < 6) {
-      const nextQ = Math.max(0.05, (targetBytes / result.size) * 0.8);
+      const nextQ = Math.max(0.05, (targetBytes / result.size) * 0.85);
       const recompressed = await imageCompression(file, {
         useWebWorker: true,
         initialQuality: nextQ,
@@ -169,7 +164,7 @@ export default function App() {
       safetyPass++;
     }
 
-    // If result is much smaller (<85%), boost quality slightly
+    // Quality boost if output is too small
     if (result.size < targetBytes * 0.85) {
       const boostQ = Math.min(1, (result.size / targetBytes) + 0.1);
       const boosted = await imageCompression(file, {
@@ -359,7 +354,12 @@ export default function App() {
                   className="checkbox small"
                 />
                 <img src={URL.createObjectURL(f)} alt={f.name} />
-                <span>{formatSize(f.size)}</span>
+                <span>
+                  {formatSize(f.size)}
+                  {running && progressMap[i]
+                    ? ` • ${Math.round(progressMap[i])}%`
+                    : ""}
+                </span>
               </div>
             ))}
           </div>
