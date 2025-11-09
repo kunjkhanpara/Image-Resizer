@@ -26,21 +26,18 @@ export default function App() {
   const [height, setHeight] = useState("");
   const [unit, setUnit] = useState("px");
 
-  // ✅ 1️⃣ Warm up Web Worker (fix for mobile freeze)
+  // ✅ Warm-up for mobile freeze fix
   useEffect(() => {
     const warmup = async () => {
       try {
         const blob = new Blob(["fake"], { type: "image/jpeg" });
         await imageCompression(blob, { maxSizeMB: 0.001, useWebWorker: true });
-        console.log("Worker ready ✅");
-      } catch (err) {
-        console.log("Worker warmup skipped:", err);
-      }
+      } catch {}
     };
     warmup();
   }, []);
 
-  // Restore from IndexedDB
+  // Restore previous files
   useEffect(() => {
     (async () => {
       const stored = await get("savedImages");
@@ -53,7 +50,7 @@ export default function App() {
     })();
   }, []);
 
-  // ✅ Extract dimensions for all images
+  // Extract image dimensions
   const extractAllDimensions = async (fileArray, existingDims = {}) => {
     const promises = fileArray.map(
       (file, index) =>
@@ -152,7 +149,7 @@ export default function App() {
 
       // Resize by MB/KB
       if (useMB && targetSize) {
-        processedFile = await compressAccurate(file, targetSize, sizeUnit, i);
+        processedFile = await compressSmartAccurate(file, targetSize, sizeUnit, i);
       }
 
       out.push({ originalIndex: i, file: processedFile });
@@ -163,76 +160,46 @@ export default function App() {
     setRunning(false);
   };
 
-  // ✅ 2️⃣ Mobile-safe compression with auto-fallback (no worker retry)
-  const compressAccurate = async (file, targetValue, unitType, i) => {
+  // ✅ New precise adaptive compression
+  const compressSmartAccurate = async (file, targetValue, unitType, i) => {
     const targetBytes =
       unitType === "MB" ? targetValue * 1024 * 1024 : targetValue * 1024;
-    let low = 0.05,
-      high = 1.0,
-      best = file,
-      bestDiff = Infinity;
-    const maxTries = 14;
+    let quality = 0.85; // start high
+    let step = 0.05;
+    let best = file;
+    let bestDiff = Infinity;
 
-    let useWorker = true;
+    const maxTries = 20;
+
     for (let tries = 0; tries < maxTries; tries++) {
-      const q = (low + high) / 2;
-      let compressed;
-
-      try {
-        compressed = await Promise.race([
-          imageCompression(file, {
-            useWebWorker: useWorker,
-            initialQuality: q,
-            maxWidthOrHeight: 6000,
-          }),
-          new Promise((_, reject) =>
-            setTimeout(() => reject("timeout"), 2500)
-          ),
-        ]);
-      } catch {
-        console.warn("⚠️ Worker timeout. Retrying without worker...");
-        useWorker = false;
-        continue;
-      }
+      const compressed = await imageCompression(file, {
+        useWebWorker: true,
+        initialQuality: quality,
+        maxWidthOrHeight: 6000,
+      });
 
       const diff = Math.abs(compressed.size - targetBytes);
-      if (compressed.size <= targetBytes && diff < bestDiff) {
+
+      // Update best candidate
+      if (diff < bestDiff) {
         best = compressed;
         bestDiff = diff;
       }
 
-      if (compressed.size > targetBytes) high = q - 0.02;
-      else low = q + 0.02;
+      const ratio = compressed.size / targetBytes;
+
+      if (ratio > 1.05) quality -= step; // too big → reduce quality
+      else if (ratio < 0.95) quality += step; // too small → increase quality
+      else break; // within ±5%
+
+      // fine-tune smaller step as we get close
+      step *= 0.7;
+      quality = Math.min(1, Math.max(0.05, quality));
 
       setProgressMap((p) => ({ ...p, [i]: ((tries + 1) / maxTries) * 100 }));
     }
 
-    let result = best;
-    let safetyPass = 0;
-    while (result.size > targetBytes && safetyPass < 5) {
-      const nextQ = Math.max(0.05, (targetBytes / result.size) * 0.8);
-      const reCompressed = await imageCompression(file, {
-        useWebWorker: useWorker,
-        initialQuality: nextQ,
-        maxWidthOrHeight: 6000,
-      });
-      if (reCompressed.size < result.size) result = reCompressed;
-      else break;
-      safetyPass++;
-    }
-
-    if (result.size < targetBytes * 0.85) {
-      const boostQ = Math.min(1, (result.size / targetBytes) + 0.1);
-      const boosted = await imageCompression(file, {
-        useWebWorker: useWorker,
-        initialQuality: boostQ,
-        maxWidthOrHeight: 6000,
-      });
-      if (boosted.size > result.size && boosted.size <= targetBytes)
-        result = boosted;
-    }
-
-    return result;
+    return best;
   };
 
   const toggleSelect = (index) =>
@@ -390,7 +357,6 @@ export default function App() {
           Clear All
         </button>
 
-        {/* Uploaded Images Grid */}
         {files.length > 0 && (
           <div className="grid">
             {files.map((f, i) => (
@@ -424,7 +390,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Resized Results */}
         {results.length > 0 && (
           <>
             <div className="resized-header">
