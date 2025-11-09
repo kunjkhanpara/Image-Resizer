@@ -17,7 +17,6 @@ export default function App() {
   const [progressMap, setProgressMap] = useState({});
   const [showAbout, setShowAbout] = useState(false);
 
-  // Resize options
   const [useMB, setUseMB] = useState(false);
   const [useDimension, setUseDimension] = useState(false);
   const [targetSize, setTargetSize] = useState("");
@@ -26,18 +25,18 @@ export default function App() {
   const [height, setHeight] = useState("");
   const [unit, setUnit] = useState("px");
 
-  // ✅ Warm-up for mobile freeze fix
+  // ✅ Warmup Web Worker (for mobile freeze)
   useEffect(() => {
     const warmup = async () => {
       try {
-        const blob = new Blob(["fake"], { type: "image/jpeg" });
+        const blob = new Blob(["warmup"], { type: "image/jpeg" });
         await imageCompression(blob, { maxSizeMB: 0.001, useWebWorker: true });
       } catch {}
     };
     warmup();
   }, []);
 
-  // Restore previous files
+  // Restore from IndexedDB
   useEffect(() => {
     (async () => {
       const stored = await get("savedImages");
@@ -50,7 +49,6 @@ export default function App() {
     })();
   }, []);
 
-  // Extract image dimensions
   const extractAllDimensions = async (fileArray, existingDims = {}) => {
     const promises = fileArray.map(
       (file, index) =>
@@ -66,7 +64,6 @@ export default function App() {
           img.src = URL.createObjectURL(file);
         })
     );
-
     const loaded = await Promise.all(promises);
     const newDims = { ...existingDims };
     loaded.forEach(({ index, width, height }) => {
@@ -75,7 +72,6 @@ export default function App() {
     setFileDimensions(newDims);
   };
 
-  // Dropzone setup
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     multiple: true,
     accept: { "image/*": [] },
@@ -106,7 +102,7 @@ export default function App() {
 
   const showAlert = (msg) => alert(msg);
 
-  // ✅ Compression start
+  // ✅ Parallel compression handler
   const startCompression = async () => {
     if (!selectedFiles.length)
       return showAlert("Please select at least one image to resize!");
@@ -121,85 +117,127 @@ export default function App() {
     setProgressMap({});
     setResults([]);
 
-    const out = [];
+    const tasks = originalFiles
+      .map((file, i) =>
+        selectedFiles.includes(i)
+          ? async () => {
+              let processedFile = file;
 
-    for (let i = 0; i < originalFiles.length; i++) {
-      if (!selectedFiles.includes(i)) continue;
-      const file = originalFiles[i];
-      let processedFile = file;
+              // Resize by dimension
+              if (useDimension && width && height) {
+                const w = convertToPx(Number(width));
+                const h = convertToPx(Number(height));
+                const img = await createImageBitmap(file);
+                const canvas = document.createElement("canvas");
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(img, 0, 0, w, h);
+                processedFile = await new Promise((resolve) =>
+                  canvas.toBlob(
+                    (b) =>
+                      resolve(new File([b], file.name, { type: file.type })),
+                    file.type,
+                    0.9
+                  )
+                );
+              }
 
-      // Resize by dimension
-      if (useDimension && width && height) {
-        const w = convertToPx(Number(width));
-        const h = convertToPx(Number(height));
-        const img = await createImageBitmap(file);
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, w, h);
-        processedFile = await new Promise((resolve) =>
-          canvas.toBlob(
-            (b) => resolve(new File([b], file.name, { type: file.type })),
-            file.type,
-            0.9
-          )
-        );
-      }
+              if (useMB && targetSize) {
+                processedFile = await compressStrictUnder(
+                  file,
+                  targetSize,
+                  sizeUnit,
+                  i
+                );
+              }
 
-      // Resize by MB/KB
-      if (useMB && targetSize) {
-        processedFile = await compressSmartAccurate(file, targetSize, sizeUnit, i);
-      }
+              setProgressMap((p) => ({ ...p, [i]: 100 }));
+              return { originalIndex: i, file: processedFile };
+            }
+          : null
+      )
+      .filter(Boolean);
 
-      out.push({ originalIndex: i, file: processedFile });
-      setProgressMap((p) => ({ ...p, [i]: 100 }));
+    // Run with concurrency limit
+    const concurrency = 4;
+    const resultsArray = [];
+    let index = 0;
+
+    async function runBatch() {
+      const batch = tasks.slice(index, index + concurrency);
+      if (!batch.length) return;
+      const settled = await Promise.allSettled(batch.map((fn) => fn()));
+      settled.forEach((res) => {
+        if (res.status === "fulfilled") resultsArray.push(res.value);
+      });
+      index += concurrency;
+      await runBatch();
     }
 
-    setResults(out);
+    await runBatch();
+    setResults(resultsArray);
     setRunning(false);
   };
 
-  // ✅ New precise adaptive compression
-  const compressSmartAccurate = async (file, targetValue, unitType, i) => {
+  // ✅ Strict size compression (never exceed target)
+  const compressStrictUnder = async (file, targetValue, unitType, i) => {
     const targetBytes =
       unitType === "MB" ? targetValue * 1024 * 1024 : targetValue * 1024;
-    let quality = 0.85; // start high
+
+    let quality = 0.9;
     let step = 0.05;
     let best = file;
-    let bestDiff = Infinity;
+    let bestSize = file.size;
+    let direction = "";
 
-    const maxTries = 20;
-
-    for (let tries = 0; tries < maxTries; tries++) {
+    for (let tries = 0; tries < 18; tries++) {
       const compressed = await imageCompression(file, {
         useWebWorker: true,
         initialQuality: quality,
         maxWidthOrHeight: 6000,
       });
 
-      const diff = Math.abs(compressed.size - targetBytes);
+      const size = compressed.size;
+      setProgressMap((p) => ({
+        ...p,
+        [i]: Math.min(100, ((tries + 1) / 18) * 100),
+      }));
 
-      // Update best candidate
-      if (diff < bestDiff) {
+      if (size <= targetBytes && size > bestSize) {
         best = compressed;
-        bestDiff = diff;
+        bestSize = size;
       }
 
-      const ratio = compressed.size / targetBytes;
+      const ratio = size / targetBytes;
 
-      if (ratio > 1.05) quality -= step; // too big → reduce quality
-      else if (ratio < 0.95) quality += step; // too small → increase quality
-      else break; // within ±5%
+      if (ratio > 1) {
+        if (direction === "up") step *= 0.6;
+        quality -= step;
+        direction = "down";
+      } else if (ratio < 0.93) {
+        if (direction === "down") step *= 0.6;
+        quality += step;
+        direction = "up";
+      } else break;
 
-      // fine-tune smaller step as we get close
-      step *= 0.7;
-      quality = Math.min(1, Math.max(0.05, quality));
-
-      setProgressMap((p) => ({ ...p, [i]: ((tries + 1) / maxTries) * 100 }));
+      quality = Math.max(0.05, Math.min(1, quality));
     }
 
-    return best;
+    // final safety cap
+    let result = best;
+    while (result.size > targetBytes) {
+      quality = Math.max(0.05, quality - 0.02);
+      const reCompressed = await imageCompression(file, {
+        useWebWorker: true,
+        initialQuality: quality,
+        maxWidthOrHeight: 6000,
+      });
+      if (reCompressed.size <= targetBytes) result = reCompressed;
+      else break;
+    }
+
+    return result;
   };
 
   const toggleSelect = (index) =>
