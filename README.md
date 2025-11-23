@@ -1,16 +1,33 @@
-# React + Vite
+# 🖼️ Pro Image Resizer Studio
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A fast, powerful, and privacy-focused online tool to resize and compress images with the **best possible quality**.  
+You can resize by **MB, KB, or exact dimensions (px, cm, mm, inch)** and process multiple photos at once — all directly inside your browser.
 
-Currently, two official plugins are available:
+### ⭐ Key Features
+- Resize by **target file size** (MB or KB) with accurate results  
+- Resize by **dimensions** with unit support (px, cm, mm, inch)  
+- **Guaranteed output always below your target size**  
+- **Multiple image upload**, select/deselect, and batch processing  
+- Shows **original image dimensions** and file size  
+- **Parallel processing** for faster performance  
+- **Download individually or download all** at once  
+- **Light/Dark theme**  
+- **Offline persistence** using IndexedDB (photos remain after refresh)  
+- 100% **client-side**, no photo is uploaded to any server
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+### 🌐 Live Website
+👉 https://kunjkhanpara.github.io/Image-Resizer/
 
-## React Compiler
+### 📁 GitHub Repository
+👉 https://github.com/kunjkhanpara/Image-Resizer
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 🧩 Tech Stack
+React + Vite, browser-image-compression, IndexedDB (idb-keyval), Framer Motion, Custom CSS
 
-## Expanding the ESLint configuration
+### 👨‍💻 Author
+**Kunj Khanpara**  
+🔗 Portfolio: https://kunjkhanpara.github.io/Kunj_Khanpara_Portfolio/  
+🔗 LinkedIn: https://www.linkedin.com/in/kunj-khanpara/
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### ⭐ Support
+If you find this project useful, please **give it a star on GitHub** and share your feedback!
